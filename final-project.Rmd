@@ -1,0 +1,372 @@
+---
+title: "DS201 - Final Project"
+author: "Alexander Lindquist"
+date: "5/10/2026"
+output: html_document
+---
+### Introduction
+
+In this lab, I'll be taking a look at the sum of a reddit user's 4 year project to collect data from a series of professional tournaments hosted in the game of Valorant, a popular fps shooter that sprang up in 2020 and has dominated the casual and competitive gaming scene for years. 
+
+The original post by the user, benetheburrito, was posted 7 months ago on Reddit here:
+https://www.reddit.com/r/ValorantCompetitive/comments/1odnm63/large_scale_valorant_dataset_20202024/
+
+The data was collected from a popular performance tracking website known as VLR here: 
+https://www.vlr.gg
+
+The questions we'll be asking during this project will make use of the extensive and varied performance metrics documented in the VLR dataset including information such as the standing of each team, how rounds were won, how many kills occured per team, etc.
+
+### Data
+
+```{r load-packages, message = FALSE}
+  library(tidyverse)
+  library(rvest)
+  library(openintro)
+```
+
+```{r load-data, warning = FALSE, message = FALSE}
+  data = read_csv("data/NewVLRDataRaw.csv")
+```
+
+Each row in the VLR dataset contains a professional Valorant match occuring from 2020-2024 as well as specific information about the match itself in each column. Most of these columns are self-explanatory (such as Team 1 or Team 1 kills), but I'll clarify as many of the less obvious columns below:
+
+Map: The map/environment played on numbered by release date (1 being the first map released in the game)
+
+Team 1/2 Atk/Def Rounds: The amount of rounds won on the attacking or defending side by either team
+
+Series/Map Odds: The VLR Rating given to Team 1 to win the game over Team 2 (2:1 odds -> Map Odds = 2.0)
+
+Average Combat Score (ACS): The in-game performance metric of the entire team, determined by in-game stats like deaths, kills, assists, objectives won, etc. The highest ACS team is not necessarily the winner. 
+
+Other columns may still be difficult to understand but I'll clarify them if/when we use them. 
+
+Lets look at how many matches have been recorded in this dataset:
+
+```{r col-data}
+  nrow(data)
+  ncol(data)
+```
+### Professional Popularity
+
+There have been 129,156 recorded matches of professional Valorant between the years 2020-2024. 67 types of information have been collected about each and everyone one of these games, quite extensive. To do justice the longstanding popularity of this game, lets start by showing the frequency of professional games from 2020-2024. 
+
+```{r popularity, warning = FALSE, message = FALSE}
+  plot_data <- data %>%
+    filter(Date > as.Date("2020-01-01")) %>% # Remove extraneous entry
+    mutate(month = floor_date(Date, unit = "month")) %>%
+    group_by(month) %>%
+    summarise(matches_per_month = n()) # Volume of games
+  ggplot(data = plot_data, aes(x = month, y = matches_per_month)) +
+    geom_col(alpha = 0.5) +
+    geom_smooth() +
+    labs(
+      title = "Valorant Professional Matches Over Time",
+      subtitle = "Bars represent matches per month; Blue line shows the overall trend",
+      x = "Date",
+      y = "Number of Matches Played"
+    )
+```
+
+
+As you can see, although the game has seen less professional play since its prime in 2022, the game still saw thousands of professional matches 2 year later in 2024. Its a testament to its longstanding place as one of the most popular esports. 
+
+```{r plot-cleanup, results = 'hide'}
+  rm(plot_data)
+  gc()
+```
+
+### Data Mutation and Interpretation
+
+Moving onto specifics, oddly enough, even though the dataset contains information about how many ROUNDS each team won, it doesn't specify which team won the match, something we'll be wanting to make use of later. This is the case for quite a large portion of the dataset's columns which contains very specific, but perhaps not enough general information about the match. We'll try our best to produce this information ourselves but for now, let's add a "winner" column to tell which team, if either, won the match. 
+
+```{r winner}
+data <- data %>%
+  mutate(
+    winner = case_when(
+      `Team1 Rounds` > `Team2 Rounds` ~ `Team1 Name`,
+      `Team1 Rounds` < `Team2 Rounds` ~ `Team2 Name`,
+      `Team1 Rounds` == `Team2 Rounds` ~ 'Draw')
+  )
+```
+
+Great, now we can ask something like "which team has won the most games?".
+
+```{r count-wins}
+  data %>%
+    count(winner, sort = TRUE)
+```
+
+According to this dataset, the team with the most wins in Valorant Professional History is Zero MarksMen Black. Interestingly enough, although its to be expected, there are almost 3 times as many draw's than the best team has wins. 
+
+### Team Stats
+
+Next, let's focus on team specific stats. To do this, we'll need to mutate the data to track team 1 and team 2 stats seperately, then merge them so get the performance of every team across all matches. 
+
+
+```{r team-stats, results = 'hide'}
+  t1 <- data %>%
+    select(
+      team = `Team1 Name`, 
+      rounds = `Team1 Rounds`, 
+      atkrounds = `Team1 Atk Rounds`, 
+      defrounds = `Team1 Def Rounds`, 
+      ACS = `Team1 ACS`, 
+      kills = `Team1 Kills`, 
+      deaths = `Team1 Deaths`,
+      assists = `Team1 Assists`, 
+      KAST = `Team1 KAST`,
+      eco_wins = `Team1 EcosWon`,
+      ecos = `Team1 Ecos`,
+      buy_wins = `Team1 Fullbuys Won`,
+      buys = `Team1 Fullbuys`,
+      winner,       
+      `Team2 Name`   
+    ) %>%
+    mutate(result = case_when(
+      winner == team ~ 'win',
+      winner == `Team2 Name` ~ 'loss',
+      winner == 'Draw' ~ 'draw'
+    )) %>%
+    select(-winner, -`Team2 Name`) 
+  
+  t2 <- data %>%
+    select(
+      team = `Team2 Name`, 
+      rounds = `Team2 Rounds`, 
+      atkrounds = `Team2 Atk Rounds`, 
+      defrounds = `Team2 Def Rounds`, 
+      ACS = `Team2 ACS`, 
+      kills = `Team2 Kills`, 
+      deaths = `Team2 Deaths`,
+      assists = `Team2 Assists`, 
+      KAST = `Team2 KAST`,
+      eco_wins = `Team2 EcosWon`,
+      ecos = `Team2 Ecos`,
+      buy_wins = `Team2 Fullbuys Won`,
+      buys = `Team2 Fullbuys`,
+      winner,        
+      `Team1 Name`   
+    ) %>%
+    mutate(result = case_when(
+      winner == team ~ 'win',
+      winner == `Team1 Name` ~ 'loss',
+      winner == 'Draw' ~ 'draw'
+    )) %>%
+    select(-winner, -`Team1 Name`) 
+  rm(data);
+  gc();
+  team_stats <- bind_rows(t1, t2) %>%
+    group_by(team) %>%
+    summarise(
+      # Aggregate stats 
+      total_wins = sum(result == "win"),
+      total_games = n(),
+      winrate = total_wins / total_games,
+      
+      avg_ACS = mean(ACS, na.rm = TRUE),
+      total_eco_wins = sum(eco_wins, na.rm = TRUE),
+      total_buy_wins = sum(buy_wins, na.rm = TRUE),
+      total_ecos = sum(ecos, na.rm = TRUE),
+      total_buys = sum(buys, na.rm = TRUE),
+      eco_winrate = total_eco_wins / total_ecos,
+      buy_winrate = total_buy_wins / total_buys,
+      avg_kast = mean(KAST, na.rm = TRUE),
+      total_kills = sum(kills, na.rm = TRUE),
+      total_deaths = sum(deaths, na.rm = TRUE)
+    )
+  rm(t1);
+  rm(t2);
+  gc();
+```
+
+
+Great, let's take a look at the stats now that they've been sorted a bit better.
+
+```{r team-stats-verify}
+team_stats %>%
+  arrange(desc(total_wins))
+```
+
+
+
+No surprise its the same stats, but this time we have win rates as well as games played. Lets check to see which of these experienced teams has performed most consistently well over their career. For this, we'll filter out teams with less than 300 professional matches (about half the most winning team). 
+
+```{r winrate}
+  team_stats %>%
+    filter(total_games > 300) %>%
+    arrange(desc(winrate))
+```
+
+
+So according to this arrangement, Team Falcons is consistently the highest performing team amongst Valorant professional play by over a 5% winrate compared to the next team. Interestingly enough, Team Falcons is one of the, if not the most, well-renowned gaming organizations to this day so, its no surprise that they have such a high performance in the esports scene. Let's focus in on their match history and see if we can find out what makes them so consistent. 
+
+Since we have their game-specific stats from the original VLR dataset, we can actually draw a linear model based on a couple of these data points and see which stat seems to be most relevant to winrate.
+
+We'll start with the "eco wins" stat. In Valorant, your character is allowed to purchase weapons at the start of the round to aid them in the coming round, however, purchasing better weapons (such as a rifle) is much more expensive than purchasing a worse weapon (such as a pistol), so you often coordinate with your team to choose which rounds you want to go all out on spending to win, and which rounds you want to spend minimally to wait for a better opportunity, usually when everyone on your team is capable of buying an expensive set of equipment. In tactical shooters such as these, the rounds in which your team only does cheap purchases is called an "eco" or economic round, whereas a round in which you buy expensive items is known as a "full buy". Suffice to say, if you can win with worse weapons, you'll be setup quite well in the long run economically for the next few rounds. Do pro team's rely on this? Let's see. 
+
+```{r eco-fit}
+  eco_fit <- lm(winrate ~ eco_winrate, data = team_stats)
+  summary(eco_fit)
+```
+```{r eco-cleanup, results = 'hide'}
+  rm(eco_fit)
+  gc()
+```
+```{r eco-fit-plot, warning = FALSE, message = FALSE}
+  ggplot(team_stats, aes(x = eco_winrate, y = winrate)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", color = "green") +
+  labs(
+    title = "The 'Eco Win' Advantage",
+    subtitle = "Most team's average 2.3 Eco's per game",
+    x = "Eco Round Win Rate",
+    y = "Predicted Overall Match Win Rate"
+  )
+```
+
+According to this statistic, every 1% increase in eco round winrate results in 0.87% increase in overall winrate, accounting for only about 15% of the variance, a pretty poor correlation considering eco rounds only makeup for about 15% of rounds in the first place. Interestingly enough though, we've drawn a different, more sensible conclusion from the data, that is, your performance on eco rounds actually matters much less than a standard buy round. This is made slightly more evident by graphing the winrate in terms of eco_winrate and seeing that the vast majority of data, even high winrates, occurs at a lower eco round winrate. Even the pro's can't always be expected to win when they bring a glock to a 50 cal fight. 
+
+Of course, being able to turn around the flow of the game by winning at a disadvantage is always good, but this reinforces the purpose of eco rounds, which is essentially to minimize long term losses. If we can prove that buy rounds are significantly more impactful than eco rounds, we can actually show by just how much its worthwhile to buy efficiently in the long run. 
+
+```{r full-fit}
+  full_fit <- lm(winrate ~ eco_winrate + buy_winrate, data = team_stats)
+  summary(full_fit)
+```
+
+```{r full-cleanup, results = 'hide'}
+  rm(full_fit)
+  gc()
+```
+
+
+```{r full-fit-plot, warning = FALSE, message = FALSE}
+  ggplot(team_stats, aes(x = buy_winrate, y = winrate)) +
+  geom_point(alpha = 0.5) +
+  scale_x_continuous(n.breaks = 10) +
+  scale_y_continuous(n.breaks = 10) +
+  geom_smooth(method = "lm", color = "green") +
+  labs(
+    title = "The 'Buy Win' Advantage",
+    subtitle = "Most team's average 11.5 Fullbuy's per game",
+    x = "Buy Round Win Rate",
+    y = "Predicted Overall Match Win Rate"
+  )
+```
+
+
+Very nice, now it's pretty clear that, when it comes to eco rounds, they can't even compare to the significance of buy rounds by about 4 times the factor. We've now represented 60% of the total variance in the dataset and drawn the key conclusion we were looking for. Primarily, we've concluded that every 1% increase in buy round winrate corresponds to 1.18% match winrate. This is huge, not only because it's more impactful than eco rounds, but because it shows that there are practically no teams in professional valorant which either win 0 rounds during their career nor are there any teams which win all of their buy rounds. Essentially, the upper and lower limit established here is what can be expected of professional valorant, the vast majority of teams which make it to the professional stage are capable of putting up enough of a fight that the stats predict they'll almost always win at least a couple rounds.
+
+Now, for the final stat we'll look at, we'll be considering ACS, the average combat score of each team. Essentially, we want to see how good in-game performance metrics correspond to team winrate, or if the game simply isn't capable of capturing what makes a "good" team at a high level. 
+
+```{r ACS-fit}
+  acs_fit <- lm(winrate ~ avg_ACS, data = team_stats)
+  summary(acs_fit)
+```
+
+Amazing, so for every 1 combat score, the team get about a 0.4% higher chance of scoring. In fact, about 28% of variation in game results comes from the average combat score of your entire team. This seems like a very reliable metric, and we could easily pair with something like KAST to tell us just how much the individual scores add up to the team's success, however, we'll see save that metric for the last part. 
+
+```{r ACS-cleanup, results = 'hide'}
+  rm(acs_fit)
+  gc()
+```
+Now that we've determined a couple of decently reliable and unreliable metrics for predicting winrate, lets see how the most consistently performing team, Team Falcons, ranks in these metrics to see if there's any specific correlation for these more experienced organizations or if our data has completely missed out on a key part of their performance. Naturally, our expectation is that they'll be in the highest percentiles for every stat we've checked, but by what degree is the question. 
+
+```{r percentiles, results = 'hide'}
+team_percentiles <- team_stats %>%
+  filter(total_games > 300) %>% # Longer lasting orgs only
+  mutate(
+    winrate_percentile = 100*percent_rank(winrate), 
+    ecowinrate_percentile = 100*percent_rank(eco_winrate), 
+    buywinrate_percentile = 100*percent_rank(buy_winrate), 
+    ACS_percentile = 100*percent_rank(avg_ACS),
+    KAST_percentile = 100*percent_rank(avg_kast)
+  )
+  rm(team_stats)
+  gc()
+```
+```{r graphs, warning = FALSE, message = FALSE}
+target_team <- "Team Falcons"
+
+# Get TF specific winrate values
+target_val <- team_percentiles %>% filter(team == target_team) %>% pull(winrate)
+target_pct <- team_percentiles %>% filter(team == target_team) %>% pull(winrate_percentile)
+
+ggplot(team_percentiles, aes(x = winrate)) +
+  geom_density() +
+  geom_vline(xintercept = target_val, linetype = "dashed", color = "red") +
+  annotate("text", x = target_val, y = 0.5, label = paste0(target_team, ": ", round(target_pct, 1), "th Percentile"), angle = 90, vjust = -0.5, color = "red", fontface = "bold") +
+  scale_x_continuous(n.breaks = 10) +
+  labs(
+    title = paste(target_team, "Performance vs. The League - Winrate"),
+    subtitle = "The curve represents all teams; the red line is your selected team",
+    x = "Win Rate",
+    y = "Frequency"
+  )
+
+# Get TF specific eco winrate values
+target_val <- team_percentiles %>% filter(team == target_team) %>% pull(eco_winrate)
+target_pct <- team_percentiles %>% filter(team == target_team) %>% pull(ecowinrate_percentile)
+
+ggplot(team_percentiles, aes(x = eco_winrate)) +
+  geom_density() +
+  geom_vline(xintercept = target_val, linetype = "dashed", color = "red") +
+  annotate("text", x = target_val, y = 0.5, label = paste0(target_team, ": ", round(target_pct, 1), "th Percentile"), angle = 90, vjust = -0.5, color = "red", fontface = "bold") +
+  scale_x_continuous(n.breaks = 10) +
+  labs(
+    title = paste(target_team, "Performance vs. The League - Eco Winrate"),
+    subtitle = "The curve represents all teams; the red line is your selected team",
+    x = "Eco Win Rate",
+    y = "Frequency"
+  )
+
+# Get TF specific buy winrate values
+target_val <- team_percentiles %>% filter(team == target_team) %>% pull(buy_winrate)
+target_pct <- team_percentiles %>% filter(team == target_team) %>% pull(buywinrate_percentile)
+
+ggplot(team_percentiles, aes(x = buy_winrate)) +
+  geom_density() +
+  geom_vline(xintercept = target_val, linetype = "dashed", color = "red") +
+  annotate("text", x = target_val, y = 0.5, label = paste0(target_team, ": ", round(target_pct, 1), "th Percentile"), angle = 90, vjust = -0.5, color = "red", fontface = "bold") +
+  scale_x_continuous(n.breaks = 10) +
+  labs(
+    title = paste(target_team, "Performance vs. The League - Buy Winrate"),
+    subtitle = "The curve represents all teams; the red line is your selected team",
+    x = "Buy Win Rate",
+    y = "Frequency"
+  )
+
+# Get TF specific ACS values
+target_val <- team_percentiles %>% filter(team == target_team) %>% pull(avg_ACS)
+target_pct <- team_percentiles %>% filter(team == target_team) %>% pull(ACS_percentile)
+
+ggplot(team_percentiles, aes(x = avg_ACS)) +
+  geom_density(aes(y = after_stat(count))) +
+  geom_vline(xintercept = target_val, linetype = "dashed", color = "red") +
+   annotate("text", x = target_val, y = 0.5, label = paste0(target_team, ": ", round(target_pct, 1), "th Percentile"), angle = 90, vjust = -0.5, color = "red", fontface = "bold") +
+  scale_x_continuous(n.breaks = 10) +
+  labs(
+    title = paste(target_team, "Performance vs. The League - Average ACS"),
+    subtitle = "The curve represents all teams; the red line is your selected team",
+    x = "Average ACS",
+    y = "Frequency"
+  )
+
+# Get TF specific KAST values
+target_val <- team_percentiles %>% filter(team == target_team) %>% pull(avg_kast)
+target_pct <- team_percentiles %>% filter(team == target_team) %>% pull(KAST_percentile)
+
+ggplot(team_percentiles, aes(x = avg_kast)) +
+  geom_density(aes(y = after_stat(count))) +
+  geom_vline(xintercept = target_val, linetype = "dashed", color = "red") +
+   annotate("text", x = target_val, y = 0.5, label = paste0(target_team, ": ", round(target_pct, 1), "th Percentile"), angle = 90, vjust = -0.5, color = "red", fontface = "bold") +
+  scale_x_continuous(n.breaks = 10) +
+  labs(
+    title = paste(target_team, "Performance vs. The League - Average KAST Rate"),
+    subtitle = "The curve represents all teams; the red line is your selected team",
+    x = "KAST Rate",
+    y = "Frequency"
+  )
+  
+```
+
+
